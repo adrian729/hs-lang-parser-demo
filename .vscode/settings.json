@@ -1,0 +1,13 @@
+{
+    // Enabling Emmet Inside HSX Blocks
+    "emmet.includeLanguages": {
+        "haskell": "html"
+    },
+
+    // ormolu formatter
+    "ormolu.path": "~/.cabal/bin/ormolu", // change to your ormolu path
+    "ormolu.args": [
+        "--no-cabal"
+    ],
+    "haskell.hlint.executablePath": "~/.cabal/bin/hlint" // change to your hlint path
+}

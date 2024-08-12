@@ -1,0 +1,7 @@
+{
+    "recommendations": [
+        "mogeko.haskell-extension-pack",
+        "s0kil.vscode-hsx",
+        "sjurmillidahl.ormolu-vscode"
+    ]
+}
