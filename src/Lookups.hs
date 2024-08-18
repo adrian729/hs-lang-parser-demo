@@ -7,11 +7,34 @@ import qualified Data.Map as Map
 import Parser
 import Tokens
 
-type StmtHandler = Parser -> (Stmt, Parser)
+--------------------------------------------------------------------------------
+-- TYPES
+--------------------------------------------------------------------------------
 
 type NudHandler = Parser -> (Expr, Parser)
 
 type LedHandler = Parser -> Expr -> BindingPower -> Lookups -> (Expr, Parser)
+
+type StmtHandler = Parser -> (Stmt, Parser)
+
+type BindingPowerLookup = Map TokenKind BindingPower
+
+type NudLookup = Map TokenKind NudHandler
+
+type LedLookup = Map TokenKind LedHandler
+
+type StmtLookup = Map TokenKind StmtHandler
+
+data Lookups = Lookups
+  { bindingPowerLookup :: BindingPowerLookup,
+    nudLookup :: NudLookup,
+    ledLookup :: LedLookup,
+    stmtLookup :: StmtLookup
+  }
+
+--------------------------------------------------------------------------------
+-- HANDLERS
+--------------------------------------------------------------------------------
 
 parsePrimaryExpr :: NudHandler
 parsePrimaryExpr parser =
@@ -31,20 +54,9 @@ parseBinaryExpr parser left bp lookups =
       expr = BinaryExpr {left = left, operator = current, right = newExpr}
    in (expr, updatedParser)
 
-type BindingPowerLookup = Map TokenKind BindingPower
-
-type NudLookup = Map TokenKind NudHandler
-
-type LedLookup = Map TokenKind LedHandler
-
-type StmtLookup = Map TokenKind StmtHandler
-
-data Lookups = Lookups
-  { bindingPowerLookup :: BindingPowerLookup,
-    nudLookup :: NudLookup,
-    ledLookup :: LedLookup,
-    stmtLookup :: StmtLookup
-  }
+--------------------------------------------------------------------------------
+-- HELPERS ADD HANDLERS AND BPs TO LOOKUPS
+--------------------------------------------------------------------------------
 
 addBindingPower :: TokenKind -> BindingPower -> BindingPowerLookup -> BindingPowerLookup
 addBindingPower = Map.insert
@@ -71,11 +83,8 @@ stmt :: TokenKind -> StmtHandler -> (BindingPowerLookup, StmtLookup) -> (Binding
 stmt kind handler (bpLookup, stmtLookup) = (addBindingPower kind DEFAULT bpLookup, addStmt kind handler stmtLookup)
 
 --------------------------------------------------------------------------------
--- create token lookups
+-- PARSE NUD
 --------------------------------------------------------------------------------
-
--- Parse expressions
--- TODO: check if this is the best place since this is already parsing?
 
 getNudHandler :: TokenKind -> Lookups -> NudHandler
 getNudHandler kind lookups = case Map.lookup kind (nudLookup lookups) of
@@ -87,6 +96,10 @@ parseNudExpr parser lookups =
   let kind = currentTokenKind parser
       nudHandler = getNudHandler kind lookups
    in nudHandler parser
+
+--------------------------------------------------------------------------------
+-- PARSE LED/BINARY EXPR
+--------------------------------------------------------------------------------
 
 getLedHandler :: TokenKind -> Lookups -> LedHandler
 getLedHandler kind lookups = case Map.lookup kind (ledLookup lookups) of
@@ -112,6 +125,31 @@ parseExpr :: Parser -> BindingPower -> Lookups -> (Expr, Parser)
 parseExpr parser bp lookups =
   let (leftExpr, updatedParser) = parseNudExpr parser lookups
    in parseLeftExpr updatedParser leftExpr bp lookups
+
+--------------------------------------------------------------------------------
+-- PARSE STMT
+--------------------------------------------------------------------------------
+
+getStmtHandler :: TokenKind -> Lookups -> Maybe StmtHandler
+getStmtHandler kind lookups = Map.lookup kind (stmtLookup lookups)
+
+parseExprStmt :: Parser -> Lookups -> (Stmt, Parser)
+parseExprStmt parser lookups =
+  let (expr, updatedParser') = parseExpr parser DEFAULT lookups
+      (_, updatedParser) = expected updatedParser' SEMI_COLON
+   in (ExprStmt expr, updatedParser)
+
+parseStmt :: Parser -> Lookups -> (Stmt, Parser)
+parseStmt parser lookups =
+  let kind = currentTokenKind parser
+      maybeStmtHandler = getStmtHandler kind lookups
+   in case maybeStmtHandler of
+        Just stmtHandler -> stmtHandler parser
+        Nothing -> parseExprStmt parser lookups
+
+--------------------------------------------------------------------------------
+-- CREATE LOOKUPS
+--------------------------------------------------------------------------------
 
 -- TODO: WE WERE DOING THIS, https://www.youtube.com/watch?v=1BanGrbOcjs&list=PL_2VhOvlMk4XDeq2eOOSDQMrbZj9zIU_b&index=12 at 39.53
 
@@ -146,6 +184,9 @@ createLedAdditiveLookups = createLedKindLookups ADDITIVE [PLUS, MINUS]
 -- Multiplicative
 createLedMultiplicativeLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
 createLedMultiplicativeLookups = createLedKindLookups MULTIPLICATIVE [TIMES, DIVIDE, MODULO]
+
+-- STMT:
+-- TODO: ADD STMT HANDLERS TO LOOKUPS
 
 -- Finally
 -- TODO: implement this, we need to create each lookup and have the bindingPower shared/updated for all lookups
