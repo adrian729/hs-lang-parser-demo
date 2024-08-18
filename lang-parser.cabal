@@ -61,7 +61,11 @@ library
     -- Modules exported by the library.
     exposed-modules:
         Lexer,
-        Tokens
+        Tokens,
+        AST,
+        BindingPower,
+        Parser,
+        Lookups
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -72,6 +76,7 @@ library
     -- Other library packages from which modules are imported.
     build-depends:
         base >=4.17.2.1,
+        containers,
         regex-tdfa
 
 
