@@ -3,7 +3,7 @@ module BindingPower where
 data BindingPower
   = DEFAULT
   | COMMA
-  | ASSIGNMENT
+  | ASSIG
   | LOGICAL
   | RELATIONAL
   | ADDITIVE

@@ -13,8 +13,6 @@ data TokenKind
   | RBRACE
   | LBRACKET
   | RBRACKET
-  | -- ASSIGNMENT
-    ASSIGNMENT
   | -- COMPARE
     EQUAL
   | NOT_EQUAL
@@ -41,6 +39,8 @@ data TokenKind
   | DIVIDE
   | MODULO
   | POWER
+  | -- ASSIGNMENT
+    ASSIGNMENT
   | -- ASSIGNMENT w ARITHMETIC
     PLUS_PLUS
   | MINUS_MINUS

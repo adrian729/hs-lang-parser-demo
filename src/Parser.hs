@@ -1,6 +1,5 @@
 module Parser where
 
-import AST
 import Tokens
 
 data Parser = Parser
@@ -8,18 +7,19 @@ data Parser = Parser
     -- errors :: [Error], TODO: implement errors
     parserPos :: Int
   }
+  deriving (Show)
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
 
 hasTokens :: Parser -> Bool
-hasTokens parser = parserPos parser < length (parserTokens parser) && currentTokenKind parser /= EOF
+hasTokens parser = parserPos parser < length (parserTokens parser)
 
 currentToken :: Parser -> Token
 currentToken parser
   | hasTokens parser = parserTokens parser !! parserPos parser
-  | otherwise = Token {tokenValue = "", tokenKind = EOF}
+  | otherwise = Token {tokenValue = "EOF", tokenKind = EOF}
 
 currentTokenKind :: Parser -> TokenKind
 currentTokenKind parser = tokenKind $ currentToken parser
@@ -41,27 +41,3 @@ expectError maybeError parser expectedKind =
 
 expected :: Parser -> TokenKind -> (Token, Parser)
 expected = expectError Nothing
-
---------------------------------------------------------------------------------
--- STMT PARSING
---------------------------------------------------------------------------------
-
-parseStmt :: Parser -> Stmt
-parseStmt parser = BlockStmt {body = []} -- TODO: implement
-
-fromParser :: Parser -> [Stmt]
-fromParser parser
-  | hasTokens parser = parseStmt parser : fromParser (snd $ advance parser)
-  | otherwise = []
-
---------------------------------------------------------------------------------
--- PARSER
---------------------------------------------------------------------------------
-
-createParser :: [Token] -> Parser
-createParser tokens = Parser {parserTokens = tokens, parserPos = 0}
-
-parse :: [Token] -> Stmt
-parse tokens =
-  let body = [] :: [Stmt]
-   in BlockStmt {body = body}

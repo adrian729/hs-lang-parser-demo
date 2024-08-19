@@ -3,7 +3,7 @@ module AST where
 import Tokens
 
 data Expr
-  = NumberExpr Double -- TODO: decide if using a type NumberExpr = Double instead or like this with names
+  = NumberExpr Double
   | StringExpr String
   | SymbolExpr String
   | BinaryExpr
@@ -11,8 +11,9 @@ data Expr
         operator :: Token,
         right :: Expr
       }
-  | AssignmentExpr
+  | AssignmentExpr -- a = 1 + 2; a += 4; foo.bar -= 33;
       { assigne :: Expr,
+        operator :: Token,
         value :: Expr
       }
   | PrefixExpr
@@ -28,6 +29,12 @@ data Stmt
       }
   | ExprStmt
       { expr :: Expr
+      }
+  | VarDeclStmt
+      { name :: String,
+        isConst :: Bool,
+        assignedVal :: Expr
+        -- explicitType :: Maybe Type, TODO: implement types
       }
   deriving (Show)
 

@@ -1,18 +1,33 @@
 module Main where
 
 import Lexer
+import Parse
 import System.IO (IOMode (ReadMode), hGetContents, openFile)
+import Text.Show.Pretty (pPrint)
 
 examplePath :: String
-examplePath = "resources/02.lang"
+examplePath = "resources/04.lang"
+
+printHeader :: String -> IO ()
+printHeader header = do
+  putStrLn ""
+  putStrLn "----------------"
+  putStrLn header
+  putStrLn "----------------"
+  putStrLn ""
 
 main :: IO ()
 main = do
   handle <- openFile examplePath ReadMode
   contents <- hGetContents handle
-  putStrLn $ "Code: " ++ contents
+  printHeader "Code"
+  putStrLn contents
   let tokens = tokenize contents
+  printHeader "TOKENS"
   printTokens tokens
+  printHeader "AST"
+  pPrint $ parse tokens
+  putStrLn ""
 
 -- Pratt Parser
 {-
