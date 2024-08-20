@@ -2,38 +2,13 @@ module Lookups where
 
 import AST
 import BindingPower
-import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Parser
 import Tokens
+import Types
 
 -- TODO: see how to restructure or rename the module, it has all the parsing with the lookups ...
-
---------------------------------------------------------------------------------
--- TYPES
---------------------------------------------------------------------------------
-
-type NudHandler = Parser -> (Expr, Parser)
-
-type LedHandler = Parser -> Expr -> BindingPower -> (Expr, Parser)
-
-type StmtHandler = Parser -> (Stmt, Parser)
-
-type BindingPowerLookup = Map TokenKind BindingPower
-
-type NudLookup = Map TokenKind NudHandler
-
-type LedLookup = Map TokenKind LedHandler
-
-type StmtLookup = Map TokenKind StmtHandler
-
-data Lookups = Lookups
-  { bindingPowerLookup :: BindingPowerLookup,
-    nudLookup :: NudLookup,
-    ledLookup :: LedLookup,
-    stmtLookup :: StmtLookup
-  }
 
 --------------------------------------------------------------------------------
 -- HANDLERS
@@ -102,6 +77,7 @@ kindLedHandler kind = case Map.lookup kind (ledLookup lookups) of
 
 parseLeftExpr :: Parser -> Expr -> BindingPower -> (Expr, Parser)
 parseLeftExpr parser leftExpr bp
+  -- do > for more balanced/less levels in the AST, >= for right-heavy with more levels tree when same bp
   | currBp > bp =
       let (expr, updatedParser) = kindLedHandler kind parser leftExpr currBp
        in parseLeftExpr updatedParser expr bp
@@ -136,23 +112,41 @@ parseStmt parser =
         Just stmtHandler -> stmtHandler parser
         Nothing -> parseExprStmt parser
 
-getVarDeclName :: Parser -> (String, Parser)
-getVarDeclName parser =
-  let errMsg = Just "Inside variable declaration expected to find variable name"
-      (varNameToken, pAfterVarName) = expectError errMsg parser IDENTIFIER
-      (_, pAfterAssig) = expected pAfterVarName ASSIGNMENT
-   in (tokenValue varNameToken, pAfterAssig)
+getType :: Parser -> (Maybe Type, Parser)
+getType parser =
+  if currentTokenKind parser == COLON
+    then
+      let (_, pAfterColon) = advance parser
+          (typeToken, pAfterType) = parseType pAfterColon DEFAULT
+       in (Just typeToken, pAfterType)
+    else (Nothing, parser)
+
+parseVarDeclAssignStmt :: Parser -> (Maybe Expr, Parser)
+parseVarDeclAssignStmt parser
+  | currentTokenKind parser == ASSIGNMENT =
+      let (_, pAfterAssig) = expected parser ASSIGNMENT
+          (expr, updatedParser) = parseExpr pAfterAssig ASSIG
+       in (Just expr, updatedParser)
+  | otherwise = (Nothing, parser)
 
 parseVarDeclStmt :: Parser -> (Stmt, Parser)
 parseVarDeclStmt parser =
   let (varDeclToken, pAfterVarDecl) = advance parser
-      isConstDecl = CONST == tokenKind varDeclToken
-      (varName, pAfterAssig) = getVarDeclName pAfterVarDecl
-      (assignedExpr, pAfterExpr) = parseExpr pAfterAssig ASSIG
-      (_, updatedParser) = expected pAfterExpr SEMI_COLON
-   in (VarDeclStmt {name = varName, isConst = isConstDecl, assignedVal = assignedExpr}, updatedParser)
-
--- parseExpr :: Parser -> BindingPower -> Lookups -> (Expr, Parser)
+      errMsg = Just "Inside variable declaration expected to find variable name"
+      (varNameToken, pAfterVarName) = expectError errMsg pAfterVarDecl IDENTIFIER
+      (maybeType, pAfterType) = getType pAfterVarName
+      -- if currentTokenKind == SEMI_COLON && isNothing maybeType
+      --  then error "Missing either right-hand side of the assignment or type annotation" -- TODO: check how to add this part... maybe need a func for each case better
+      (maybeExpr, pAfterAssig) = parseVarDeclAssignStmt pAfterType
+      (_, updatedParser) = expected pAfterAssig SEMI_COLON
+   in ( VarDeclStmt
+          { name = tokenValue varNameToken,
+            isConst = CONST == tokenKind varDeclToken,
+            assignedVal = maybeExpr,
+            explicitType = maybeType
+          },
+        updatedParser
+      )
 
 --------------------------------------------------------------------------------
 -- HELPERS ADD HANDLERS AND BPs TO LOOKUPS
@@ -161,15 +155,9 @@ parseVarDeclStmt parser =
 getBp :: TokenKind -> BindingPower
 getBp kind = fromMaybe NONE (Map.lookup kind (bindingPowerLookup lookups)) -- error $ "Expected binding power for token " ++ show kind
 
-addLookup :: BindingPower -> TokenKind -> a -> (BindingPowerLookup, Map TokenKind a) -> (BindingPowerLookup, Map TokenKind a)
-addLookup bp kind handler (bpLookup, handlerLookup) = (Map.insert kind bp bpLookup, Map.insert kind handler handlerLookup)
-
 --------------------------------------------------------------------------------
 -- CREATE LOOKUPS
 --------------------------------------------------------------------------------
-
-createLookups' :: a -> BindingPower -> (BindingPowerLookup, Map TokenKind a) -> [TokenKind] -> (BindingPowerLookup, Map TokenKind a)
-createLookups' handler bp = foldr (\x -> addLookup bp x handler)
 
 -- NUD:
 createNudLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
@@ -177,14 +165,14 @@ createNudLookups = createNudGroupingLookups . createNudPrefixLookups . createNud
 
 -- Literals & symbols
 createNudPrimaryLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
-createNudPrimaryLookups l = createLookups' parsePrimaryExpr PRIMARY l [NUMBER, STRING, IDENTIFIER]
+createNudPrimaryLookups l = createLookups parsePrimaryExpr PRIMARY l [NUMBER, STRING, IDENTIFIER]
 
 createNudPrefixLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
-createNudPrefixLookups l = createLookups' parsePrefixExpr UNARY l [MINUS]
+createNudPrefixLookups l = createLookups parsePrefixExpr UNARY l [MINUS]
 
 -- Grouping
 createNudGroupingLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
-createNudGroupingLookups l = createLookups' parseGroupingExpr DEFAULT l [LPAREN]
+createNudGroupingLookups l = createLookups parseGroupingExpr DEFAULT l [LPAREN]
 
 -- LED:
 createLedLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
@@ -192,23 +180,23 @@ createLedLookups = createLedMultiplicativeLookups . createLedAdditiveLookups . c
 
 -- Assignment
 createLedAssignmentLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedAssignmentLookups l = createLookups' parseAssignmentExpr ASSIG l [ASSIGNMENT, PLUS_EQUALS, MINUS_EQUALS, TIMES_EQUALS, DIVIDE_EQUALS, MODULO_EQUALS, POWER_EQUALS]
+createLedAssignmentLookups l = createLookups parseAssignmentExpr ASSIG l [ASSIGNMENT, PLUS_EQUALS, MINUS_EQUALS, TIMES_EQUALS, DIVIDE_EQUALS, MODULO_EQUALS, POWER_EQUALS]
 
 -- Logical
 createLedLogicalLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedLogicalLookups l = createLookups' parseBinaryExpr LOGICAL l [AND, OR, ELLIPSIS]
+createLedLogicalLookups l = createLookups parseBinaryExpr LOGICAL l [AND, OR, ELLIPSIS]
 
 -- Relational
 createLedRelationalLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedRelationalLookups l = createLookups' parseBinaryExpr RELATIONAL l [EQUAL, NOT_EQUAL, LESS, LESS_EQUAL, GREATER, GREATER_EQUAL]
+createLedRelationalLookups l = createLookups parseBinaryExpr RELATIONAL l [EQUAL, NOT_EQUAL, LESS, LESS_EQUAL, GREATER, GREATER_EQUAL]
 
 -- Additive
 createLedAdditiveLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedAdditiveLookups l = createLookups' parseBinaryExpr ADDITIVE l [PLUS, MINUS]
+createLedAdditiveLookups l = createLookups parseBinaryExpr ADDITIVE l [PLUS, MINUS]
 
 -- Multiplicative
 createLedMultiplicativeLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedMultiplicativeLookups l = createLookups' parseBinaryExpr MULTIPLICATIVE l [TIMES, DIVIDE, MODULO]
+createLedMultiplicativeLookups l = createLookups parseBinaryExpr MULTIPLICATIVE l [TIMES, DIVIDE, MODULO]
 
 -- STMT:
 createStmtLookups :: (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
@@ -216,9 +204,9 @@ createStmtLookups = createStmtVarDeclLookups
 
 -- Var Decl
 createStmtVarDeclLookups :: (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
-createStmtVarDeclLookups l = createLookups' parseVarDeclStmt DEFAULT l [CONST, LET]
+createStmtVarDeclLookups l = createLookups parseVarDeclStmt DEFAULT l [CONST, LET]
 
--- Finally
+-- Finally:
 -- TODO: implement this, we need to create each lookup and have the bindingPower shared/updated for all lookups
 lookups :: Lookups
 lookups = Lookups {bindingPowerLookup = bp, nudLookup = nl, ledLookup = ll, stmtLookup = sl}

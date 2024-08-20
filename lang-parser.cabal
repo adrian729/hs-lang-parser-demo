@@ -66,6 +66,7 @@ library
         BindingPower,
         Parser,
         Lookups,
+        Types,
         Parse
 
     -- Modules included in this library but not exported.

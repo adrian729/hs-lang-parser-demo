@@ -33,11 +33,14 @@ data Stmt
   | VarDeclStmt
       { name :: String,
         isConst :: Bool,
-        assignedVal :: Expr
-        -- explicitType :: Maybe Type, TODO: implement types
+        assignedVal :: Maybe Expr,
+        explicitType :: Maybe Type
       }
   deriving (Show)
 
-isBlockStmt :: Stmt -> Bool
-isBlockStmt (BlockStmt _) = True
-isBlockStmt _ = False
+-- TYPES
+
+data Type
+  = SymbolType String -- T
+  | ArrayType Type -- T[]
+  deriving (Show)

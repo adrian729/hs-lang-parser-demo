@@ -6,7 +6,7 @@ import System.IO (IOMode (ReadMode), hGetContents, openFile)
 import Text.Show.Pretty (pPrint)
 
 examplePath :: String
-examplePath = "resources/04.lang"
+examplePath = "resources/05.lang"
 
 printHeader :: String -> IO ()
 printHeader header = do
