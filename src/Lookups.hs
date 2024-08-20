@@ -53,7 +53,7 @@ parsePrimaryExpr parser =
 parsePrefixExpr :: NudHandler
 parsePrefixExpr parser =
   let (operator, pAfterOp) = advance parser
-      (rightExpr, updatedParser) = parseExpr pAfterOp DEFAULT -- TODO: This should be UNARY instead of DEFAULT, need to check why it breaks...
+      (rightExpr, updatedParser) = parseExpr pAfterOp UNARY -- TODO: This should be UNARY instead of DEFAULT, need to check why it breaks...
    in (PrefixExpr {operator = operator, right = rightExpr}, updatedParser)
 
 parseGroupingExpr :: NudHandler
@@ -80,35 +80,35 @@ parseAssignmentExpr parser left bp =
 -- PARSE NUD
 --------------------------------------------------------------------------------
 
-getNudHandler :: TokenKind -> NudHandler
-getNudHandler kind = case Map.lookup kind (nudLookup lookups) of
+kindNudHandler :: TokenKind -> NudHandler
+kindNudHandler kind = case Map.lookup kind (nudLookup lookups) of
   Just nudHandler -> nudHandler
   Nothing -> error $ "Expected nud handler for token " ++ show kind
 
 parseNudExpr :: Parser -> (Expr, Parser)
 parseNudExpr parser =
   let kind = currentTokenKind parser
-      nudHandler = getNudHandler kind
+      nudHandler = kindNudHandler kind
    in nudHandler parser
 
 --------------------------------------------------------------------------------
 -- PARSE LED/BINARY EXPR
 --------------------------------------------------------------------------------
 
-getLedHandler :: TokenKind -> LedHandler
-getLedHandler kind = case Map.lookup kind (ledLookup lookups) of
+kindLedHandler :: TokenKind -> LedHandler
+kindLedHandler kind = case Map.lookup kind (ledLookup lookups) of
   Just ledHandler -> ledHandler
   Nothing -> error $ "Expected led handler for token " ++ show kind
 
 parseLeftExpr :: Parser -> Expr -> BindingPower -> (Expr, Parser)
-parseLeftExpr parser leftExpr bp =
-  let kind = currentTokenKind parser
-      currBp = getBp kind
-   in if currBp > bp
-        then
-          let ledHandler = getLedHandler kind
-           in ledHandler parser leftExpr currBp
-        else (leftExpr, parser)
+parseLeftExpr parser leftExpr bp
+  | currBp > bp =
+      let (expr, updatedParser) = kindLedHandler kind parser leftExpr currBp
+       in parseLeftExpr updatedParser expr bp
+  | otherwise = (leftExpr, parser)
+  where
+    kind = currentTokenKind parser
+    currBp = getBp kind
 
 parseExpr :: Parser -> BindingPower -> (Expr, Parser)
 parseExpr parser bp =
@@ -119,25 +119,22 @@ parseExpr parser bp =
 -- PARSE STMT
 --------------------------------------------------------------------------------
 
-getStmtHandler :: TokenKind -> Maybe StmtHandler
-getStmtHandler kind = Map.lookup kind (stmtLookup lookups)
+kindStmtHandler :: TokenKind -> Maybe StmtHandler
+kindStmtHandler kind = Map.lookup kind (stmtLookup lookups)
 
 parseExprStmt :: Parser -> (Stmt, Parser)
 parseExprStmt parser =
-  let (expr, updatedParser') = parseExpr parser DEFAULT
-      (_, updatedParser) = expected updatedParser' SEMI_COLON
+  let (expr, pAfterExpr) = parseExpr parser DEFAULT
+      (_, updatedParser) = expected pAfterExpr SEMI_COLON
    in (ExprStmt expr, updatedParser)
 
 parseStmt :: Parser -> (Stmt, Parser)
 parseStmt parser =
   let kind = currentTokenKind parser
-      maybeStmtHandler = getStmtHandler kind
+      maybeStmtHandler = kindStmtHandler kind
    in case maybeStmtHandler of
         Just stmtHandler -> stmtHandler parser
         Nothing -> parseExprStmt parser
-
-isConstant :: TokenKind -> Bool
-isConstant kind = kind == CONST
 
 getVarDeclName :: Parser -> (String, Parser)
 getVarDeclName parser =
@@ -149,7 +146,7 @@ getVarDeclName parser =
 parseVarDeclStmt :: Parser -> (Stmt, Parser)
 parseVarDeclStmt parser =
   let (varDeclToken, pAfterVarDecl) = advance parser
-      isConstDecl = isConstant $ tokenKind varDeclToken
+      isConstDecl = CONST == tokenKind varDeclToken
       (varName, pAfterAssig) = getVarDeclName pAfterVarDecl
       (assignedExpr, pAfterExpr) = parseExpr pAfterAssig ASSIG
       (_, updatedParser) = expected pAfterExpr SEMI_COLON
