@@ -4,6 +4,7 @@ import AST
 import BindingPower
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (fromMaybe)
 import Parser
 import Tokens
 
@@ -49,6 +50,19 @@ parsePrimaryExpr parser _ =
         _ -> error "Expected primary expression"
    in (expr, updatedParser)
 
+parsePrefixExpr :: NudHandler
+parsePrefixExpr parser lookups =
+  let (operator, pAfterOp) = advance parser
+      (rightExpr, updatedParser) = parseExpr pAfterOp DEFAULT lookups
+   in (PrefixExpr {operator = operator, right = rightExpr}, updatedParser)
+
+parseGroupingExpr :: NudHandler
+parseGroupingExpr parser lookups =
+  let (_, pAfterOpen) = expected parser LPAREN
+      (expr, pAfterExpr) = parseExpr pAfterOpen DEFAULT lookups
+      (_, updatedParser) = expected pAfterExpr RPAREN
+   in (expr, updatedParser)
+
 parseBinaryExpr :: LedHandler
 parseBinaryExpr parser left bp lookups =
   let (operator, updatedParser') = advance parser
@@ -62,15 +76,12 @@ parseAssignmentExpr parser left bp lookups =
       (valExpr, updatedParser) = parseExpr pAfterOp bp lookups
    in (AssignmentExpr {assigne = left, operator = operator, value = valExpr}, updatedParser)
 
-parsePrefixExpr :: NudHandler
-parsePrefixExpr parser lookups =
-  let (operator, pAfterOp) = advance parser
-      (rightExpr, updatedParser) = parseExpr pAfterOp DEFAULT lookups
-   in (PrefixExpr {operator = operator, right = rightExpr}, updatedParser)
-
 --------------------------------------------------------------------------------
 -- HELPERS ADD HANDLERS AND BPs TO LOOKUPS
 --------------------------------------------------------------------------------
+
+getBp :: TokenKind -> Lookups -> BindingPower
+getBp kind lookups = fromMaybe NONE (Map.lookup kind (bindingPowerLookup lookups)) -- error $ "Expected binding power for token " ++ show kind
 
 addBindingPower :: TokenKind -> BindingPower -> BindingPowerLookup -> BindingPowerLookup
 addBindingPower = Map.insert
@@ -117,20 +128,14 @@ getLedHandler kind lookups = case Map.lookup kind (ledLookup lookups) of
   Just ledHandler -> ledHandler
   Nothing -> error $ "Expected led handler for token " ++ show kind
 
-isLeft :: TokenKind -> BindingPower -> Lookups -> (BindingPower, Bool)
-isLeft kind bp lookups =
-  case Map.lookup kind (bindingPowerLookup lookups) of
-    Just currBp -> (currBp, currBp > bp)
-    Nothing -> error $ "Expected binding power for token " ++ show kind
-
 parseLeftExpr :: Parser -> Expr -> BindingPower -> Lookups -> (Expr, Parser)
 parseLeftExpr parser leftExpr bp lookups =
   let kind = currentTokenKind parser
-      (leftBp, isLeftExpr) = isLeft kind bp lookups
-   in if kind /= SEMI_COLON && isLeftExpr
+      currBp = getBp kind lookups
+   in if currBp > bp
         then
           let ledHandler = getLedHandler kind lookups
-           in ledHandler parser leftExpr leftBp lookups
+           in ledHandler parser leftExpr currBp lookups
         else (leftExpr, parser)
 
 parseExpr :: Parser -> BindingPower -> Lookups -> (Expr, Parser)
@@ -189,7 +194,7 @@ parseVarDeclStmt parser lookups =
 
 -- Literals & symbols
 createNudLookups :: NudLookup -> NudLookup
-createNudLookups = createNudPrefixLookups . createNudPrimaryLookups
+createNudLookups = createNudGroupingLookups . createNudPrefixLookups . createNudPrimaryLookups
 
 createNudLookups' :: NudHandler -> [TokenKind] -> NudLookup -> NudLookup
 createNudLookups' handler kinds nl = foldr (`nud` handler) nl kinds
@@ -199,6 +204,10 @@ createNudPrimaryLookups = createNudLookups' parsePrimaryExpr [NUMBER, STRING, ID
 
 createNudPrefixLookups :: NudLookup -> NudLookup
 createNudPrefixLookups = createNudLookups' parsePrefixExpr [MINUS]
+
+-- Grouping
+createNudGroupingLookups :: NudLookup -> NudLookup
+createNudGroupingLookups = createNudLookups' parseGroupingExpr [LPAREN]
 
 -- LED:
 -- led :: TokenKind -> BindingPower -> LedHandler -> (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)

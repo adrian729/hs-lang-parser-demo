@@ -2,11 +2,12 @@ module Main where
 
 import Lexer
 import Parse
+import Parse (createParser)
 import System.IO (IOMode (ReadMode), hGetContents, openFile)
 import Text.Show.Pretty (pPrint)
 
 examplePath :: String
-examplePath = "resources/04.lang"
+examplePath = "resources/02.lang"
 
 printHeader :: String -> IO ()
 printHeader header = do
@@ -26,6 +27,7 @@ main = do
   printHeader "TOKENS"
   printTokens tokens
   printHeader "AST"
+  pPrint $ createParser tokens
   pPrint $ parse tokens
   putStrLn ""
 

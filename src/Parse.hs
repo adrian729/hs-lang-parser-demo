@@ -10,7 +10,7 @@ import Tokens
 --------------------------------------------------------------------------------
 fromParser :: Parser -> Lookups -> [Stmt]
 fromParser parser lookups
-  | hasTokens parser && currentTokenKind parser /= EOF =
+  | hasTokens parser =
       let (stmtItem, updatedParser) = parseStmt parser lookups
        in stmtItem : fromParser updatedParser lookups
   | otherwise = []

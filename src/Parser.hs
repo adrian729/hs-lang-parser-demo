@@ -14,7 +14,10 @@ data Parser = Parser
 --------------------------------------------------------------------------------
 
 hasTokens :: Parser -> Bool
-hasTokens parser = parserPos parser < length (parserTokens parser)
+hasTokens parser =
+  let pos = parserPos parser
+      curr = parserTokens parser !! pos
+   in pos < length (parserTokens parser) && tokenKind curr /= EOF
 
 currentToken :: Parser -> Token
 currentToken parser
