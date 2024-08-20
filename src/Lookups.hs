@@ -53,7 +53,7 @@ parsePrimaryExpr parser _ =
 parsePrefixExpr :: NudHandler
 parsePrefixExpr parser lookups =
   let (operator, pAfterOp) = advance parser
-      (rightExpr, updatedParser) = parseExpr pAfterOp DEFAULT lookups
+      (rightExpr, updatedParser) = parseExpr pAfterOp DEFAULT lookups -- TODO: This should be UNARY instead of DEFAULT, need to check why it breaks...
    in (PrefixExpr {operator = operator, right = rightExpr}, updatedParser)
 
 parseGroupingExpr :: NudHandler
@@ -75,34 +75,6 @@ parseAssignmentExpr parser left bp lookups =
   let (operator, pAfterOp) = advance parser
       (valExpr, updatedParser) = parseExpr pAfterOp bp lookups
    in (AssignmentExpr {assigne = left, operator = operator, value = valExpr}, updatedParser)
-
---------------------------------------------------------------------------------
--- HELPERS ADD HANDLERS AND BPs TO LOOKUPS
---------------------------------------------------------------------------------
-
-getBp :: TokenKind -> Lookups -> BindingPower
-getBp kind lookups = fromMaybe NONE (Map.lookup kind (bindingPowerLookup lookups)) -- error $ "Expected binding power for token " ++ show kind
-
-addBindingPower :: TokenKind -> BindingPower -> BindingPowerLookup -> BindingPowerLookup
-addBindingPower = Map.insert
-
-addDefaultBindingPower :: TokenKind -> BindingPowerLookup -> BindingPowerLookup
-addDefaultBindingPower kind = addBindingPower kind DEFAULT
-
-addLed :: TokenKind -> LedHandler -> LedLookup -> LedLookup
-addLed = Map.insert
-
-addStmt :: TokenKind -> StmtHandler -> StmtLookup -> StmtLookup
-addStmt = Map.insert
-
-led :: TokenKind -> BindingPower -> LedHandler -> (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-led kind bp handler (bpLookup, ledLookup) = (addBindingPower kind bp bpLookup, addLed kind handler ledLookup)
-
-nud :: TokenKind -> NudHandler -> NudLookup -> NudLookup
-nud = Map.insert
-
-stmt :: TokenKind -> StmtHandler -> (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
-stmt kind handler (bpLookup, stmtLookup) = (addBindingPower kind DEFAULT bpLookup, addStmt kind handler stmtLookup)
 
 --------------------------------------------------------------------------------
 -- PARSE NUD
@@ -186,70 +158,74 @@ parseVarDeclStmt parser lookups =
 -- parseExpr :: Parser -> BindingPower -> Lookups -> (Expr, Parser)
 
 --------------------------------------------------------------------------------
+-- HELPERS ADD HANDLERS AND BPs TO LOOKUPS
+--------------------------------------------------------------------------------
+
+getBp :: TokenKind -> Lookups -> BindingPower
+getBp kind lookups = fromMaybe NONE (Map.lookup kind (bindingPowerLookup lookups)) -- error $ "Expected binding power for token " ++ show kind
+
+addLookup :: BindingPower -> TokenKind -> a -> (BindingPowerLookup, Map TokenKind a) -> (BindingPowerLookup, Map TokenKind a)
+addLookup bp kind handler (bpLookup, handlerLookup) = (Map.insert kind bp bpLookup, Map.insert kind handler handlerLookup)
+
+--------------------------------------------------------------------------------
 -- CREATE LOOKUPS
 --------------------------------------------------------------------------------
 
--- NUD:
--- nud :: TokenKind -> NudHandler -> (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
+createLookups' :: a -> BindingPower -> (BindingPowerLookup, Map TokenKind a) -> [TokenKind] -> (BindingPowerLookup, Map TokenKind a)
+createLookups' handler bp = foldr (\x -> addLookup bp x handler)
 
--- Literals & symbols
-createNudLookups :: NudLookup -> NudLookup
+-- NUD:
+createNudLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
 createNudLookups = createNudGroupingLookups . createNudPrefixLookups . createNudPrimaryLookups
 
-createNudLookups' :: NudHandler -> [TokenKind] -> NudLookup -> NudLookup
-createNudLookups' handler kinds nl = foldr (`nud` handler) nl kinds
+-- Literals & symbols
+createNudPrimaryLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
+createNudPrimaryLookups l = createLookups' parsePrimaryExpr PRIMARY l [NUMBER, STRING, IDENTIFIER]
 
-createNudPrimaryLookups :: NudLookup -> NudLookup
-createNudPrimaryLookups = createNudLookups' parsePrimaryExpr [NUMBER, STRING, IDENTIFIER]
-
-createNudPrefixLookups :: NudLookup -> NudLookup
-createNudPrefixLookups = createNudLookups' parsePrefixExpr [MINUS]
+createNudPrefixLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
+createNudPrefixLookups l = createLookups' parsePrefixExpr UNARY l [MINUS]
 
 -- Grouping
-createNudGroupingLookups :: NudLookup -> NudLookup
-createNudGroupingLookups = createNudLookups' parseGroupingExpr [LPAREN]
+createNudGroupingLookups :: (BindingPowerLookup, NudLookup) -> (BindingPowerLookup, NudLookup)
+createNudGroupingLookups l = createLookups' parseGroupingExpr DEFAULT l [LPAREN]
 
 -- LED:
--- led :: TokenKind -> BindingPower -> LedHandler -> (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
 createLedLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
 createLedLookups = createLedMultiplicativeLookups . createLedAdditiveLookups . createLedRelationalLookups . createLedLogicalLookups . createLedAssignmentLookups
 
-createLedLookups' :: LedHandler -> BindingPower -> [TokenKind] -> (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedLookups' handler bp kinds (bpl, ll) = foldr (\x -> led x bp handler) (bpl, ll) kinds
-
 -- Assignment
 createLedAssignmentLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedAssignmentLookups = createLedLookups' parseAssignmentExpr ASSIG [ASSIGNMENT, PLUS_EQUALS, MINUS_EQUALS, TIMES_EQUALS, DIVIDE_EQUALS, MODULO_EQUALS, POWER_EQUALS]
+createLedAssignmentLookups l = createLookups' parseAssignmentExpr ASSIG l [ASSIGNMENT, PLUS_EQUALS, MINUS_EQUALS, TIMES_EQUALS, DIVIDE_EQUALS, MODULO_EQUALS, POWER_EQUALS]
 
 -- Logical
 createLedLogicalLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedLogicalLookups = createLedLookups' parseBinaryExpr LOGICAL [AND, OR, ELLIPSIS]
+createLedLogicalLookups l = createLookups' parseBinaryExpr LOGICAL l [AND, OR, ELLIPSIS]
 
 -- Relational
 createLedRelationalLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedRelationalLookups = createLedLookups' parseBinaryExpr RELATIONAL [EQUAL, NOT_EQUAL, LESS, LESS_EQUAL, GREATER, GREATER_EQUAL]
+createLedRelationalLookups l = createLookups' parseBinaryExpr RELATIONAL l [EQUAL, NOT_EQUAL, LESS, LESS_EQUAL, GREATER, GREATER_EQUAL]
 
 -- Additive
 createLedAdditiveLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedAdditiveLookups = createLedLookups' parseBinaryExpr ADDITIVE [PLUS, MINUS]
+createLedAdditiveLookups l = createLookups' parseBinaryExpr ADDITIVE l [PLUS, MINUS]
 
 -- Multiplicative
 createLedMultiplicativeLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedMultiplicativeLookups = createLedLookups' parseBinaryExpr MULTIPLICATIVE [TIMES, DIVIDE, MODULO]
+createLedMultiplicativeLookups l = createLookups' parseBinaryExpr MULTIPLICATIVE l [TIMES, DIVIDE, MODULO]
 
 -- STMT:
--- stmt :: TokenKind -> StmtHandler -> (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
 createStmtLookups :: (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
 createStmtLookups = createStmtVarDeclLookups
 
+-- Var Decl
 createStmtVarDeclLookups :: (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
-createStmtVarDeclLookups (bpl, sl) = foldr (`stmt` parseVarDeclStmt) (bpl, sl) [CONST, LET]
+createStmtVarDeclLookups l = createLookups' parseVarDeclStmt DEFAULT l [CONST, LET]
 
 -- Finally
 -- TODO: implement this, we need to create each lookup and have the bindingPower shared/updated for all lookups
 createLookups :: Lookups
 createLookups = Lookups {bindingPowerLookup = bp, nudLookup = nl, ledLookup = ll, stmtLookup = sl}
   where
-    nl = createNudLookups Map.empty
-    (bp', ll) = createLedLookups (Map.empty, Map.empty)
+    (bp'', nl) = createNudLookups (Map.empty, Map.empty)
+    (bp', ll) = createLedLookups (bp'', Map.empty)
     (bp, sl) = createStmtLookups (bp', Map.empty)
