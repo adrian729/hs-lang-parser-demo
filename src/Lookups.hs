@@ -25,10 +25,11 @@ parsePrimaryExpr parser =
         _ -> error "Expected primary expression"
    in (expr, updatedParser)
 
+-- parseNudExpr :: Parser -> (Expr, Parser)
 parsePrefixExpr :: NudHandler
 parsePrefixExpr parser =
   let (operator, pAfterOp) = advance parser
-      (rightExpr, updatedParser) = parseExpr pAfterOp UNARY -- TODO: This should be UNARY instead of DEFAULT, need to check why it breaks...
+      (rightExpr, updatedParser) = parseNudExpr pAfterOp
    in (PrefixExpr {operator = operator, right = rightExpr}, updatedParser)
 
 parseGroupingExpr :: NudHandler
@@ -127,8 +128,8 @@ validateEmptyVarDecl parser maybeType isConstant
   | currentTokenKind parser == SEMI_COLON && isNothing maybeType = error "Missing either right-hand side of the assignment or type annotation"
   | otherwise = (Nothing, parser)
 
-parseVarDeclAssignStmt :: Parser -> Maybe Type -> Bool -> (Maybe Expr, Parser)
-parseVarDeclAssignStmt parser maybeType isConstant
+parseVarDeclAssign :: Parser -> Maybe Type -> Bool -> (Maybe Expr, Parser)
+parseVarDeclAssign parser maybeType isConstant
   | currentTokenKind parser == ASSIGNMENT =
       let (_, pAfterAssig) = expected parser ASSIGNMENT
           (expr, updatedParser) = parseExpr pAfterAssig ASSIG
@@ -142,7 +143,7 @@ parseVarDeclStmt parser =
       errMsg = Just "Inside variable declaration expected to find variable name"
       (varNameToken, pAfterVarName) = expectError errMsg pAfterVarDecl IDENTIFIER
       (maybeType, pAfterType) = getType pAfterVarName
-      (maybeExpr, pAfterAssig) = parseVarDeclAssignStmt pAfterType maybeType isConstant
+      (maybeExpr, pAfterAssig) = parseVarDeclAssign pAfterType maybeType isConstant
       (_, updatedParser) = expected pAfterAssig SEMI_COLON
    in ( VarDeclStmt
           { name = tokenValue varNameToken,
@@ -158,7 +159,7 @@ parseVarDeclStmt parser =
 --------------------------------------------------------------------------------
 
 getBp :: TokenKind -> BindingPower
-getBp kind = fromMaybe NONE (Map.lookup kind (bindingPowerLookup lookups)) -- error $ "Expected binding power for token " ++ show kind
+getBp kind = fromMaybe DEFAULT (Map.lookup kind (bindingPowerLookup lookups)) -- error $ "Expected binding power for token " ++ show kind
 
 --------------------------------------------------------------------------------
 -- CREATE LOOKUPS

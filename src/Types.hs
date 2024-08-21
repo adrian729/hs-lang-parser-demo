@@ -32,12 +32,20 @@ parseSymbolType parser =
       value = tokenValue identifier
    in (SymbolType value, updatedParser)
 
-parseArrayType :: TypeNudHandler
-parseArrayType parser =
+-- For ArrayType as nud, f.e. []number
+-- parseArrayType :: TypeNudHandler
+-- parseArrayType parser =
+--   let (_, pAfterLBracket) = expected parser LBRACKET
+--       (_, pAfterRBracket) = expected pAfterLBracket RBRACKET
+--       (underlyingType, updatedParser) = parseType pAfterRBracket DEFAULT
+--    in (ArrayType underlyingType, updatedParser)
+
+-- For ArrayType as led, f.e. number[]
+parseArrayType :: TypeLedHandler
+parseArrayType parser left _ =
   let (_, pAfterLBracket) = expected parser LBRACKET
-      (_, pAfterRBracket) = expected pAfterLBracket RBRACKET
-      (underlyingType, updatedParser) = parseType pAfterRBracket DEFAULT
-   in (ArrayType underlyingType, updatedParser)
+      (_, updatedParser) = expected pAfterLBracket RBRACKET
+   in (ArrayType left, updatedParser)
 
 --------------------------------------------------------------------------------
 -- PARSE NUD
@@ -78,7 +86,6 @@ parseLeftType parser leftType bp
 -- PARSE
 --------------------------------------------------------------------------------
 
--- TODO: make it so that it works for ArrayType as well... keep checking video from 37.05 as I think he has the same error and will try to fix it now https://www.youtube.com/watch?v=Uz8Yi_udGNY&list=PL_2VhOvlMk4XDeq2eOOSDQMrbZj9zIU_b&index=10
 parseType :: Parser -> BindingPower -> (Type, Parser)
 parseType parser bp =
   let (leftType, updatedParser) = parseNudType parser
@@ -89,7 +96,7 @@ parseType parser bp =
 --------------------------------------------------------------------------------
 
 getTypeBp :: TokenKind -> BindingPower
-getTypeBp kind = fromMaybe NONE (Map.lookup kind (tbindingPowerLookup typeLookups)) -- error $ "Expected binding power for token " ++ show kind
+getTypeBp kind = fromMaybe DEFAULT (Map.lookup kind (tbindingPowerLookup typeLookups)) -- error $ "Expected binding power for token " ++ show kind
 
 --------------------------------------------------------------------------------
 -- CREATE TYPE LOOKUPS
@@ -97,20 +104,27 @@ getTypeBp kind = fromMaybe NONE (Map.lookup kind (tbindingPowerLookup typeLookup
 
 -- NUD:
 createTypeNudLookups :: (BindingPowerLookup, TypeNudLookup) -> (BindingPowerLookup, TypeNudLookup)
-createTypeNudLookups = createArrayTypeNudLookups . createIdentifierTypeNudLookups
+createTypeNudLookups = createIdentifierTypeNudLookups
 
 -- Identifier
 createIdentifierTypeNudLookups :: (BindingPowerLookup, TypeNudLookup) -> (BindingPowerLookup, TypeNudLookup)
-createIdentifierTypeNudLookups l = createLookups parseSymbolType DEFAULT l [IDENTIFIER]
+createIdentifierTypeNudLookups l = createLookups parseSymbolType PRIMARY l [IDENTIFIER]
 
--- Array Type f.e. []number
-createArrayTypeNudLookups :: (BindingPowerLookup, TypeNudLookup) -> (BindingPowerLookup, TypeNudLookup)
-createArrayTypeNudLookups l = createLookups parseArrayType DEFAULT l [LBRACKET]
+-- For Array Type as nud, f.e. []number
+-- createArrayTypeNudLookups :: (BindingPowerLookup, TypeNudLookup) -> (BindingPowerLookup, TypeNudLookup)
+-- createArrayTypeNudLookups l = createLookups parseArrayType DEFAULT l [LBRACKET]
 
 -- LED:
+createTypeLedLookups :: (BindingPowerLookup, TypeLedLookup) -> (BindingPowerLookup, TypeLedLookup)
+createTypeLedLookups = createArrayTypeLedLookups
+
+-- For Array Type as led, f.e. number[]
+createArrayTypeLedLookups :: (BindingPowerLookup, TypeLedLookup) -> (BindingPowerLookup, TypeLedLookup)
+createArrayTypeLedLookups l = createLookups parseArrayType MEMBER l [LBRACKET]
 
 -- Finally:
 typeLookups :: TypeLookups
-typeLookups = TypeLookups {tbindingPowerLookup = bp, tnudLookup = nl, tledLookup = Map.empty}
+typeLookups = TypeLookups {tbindingPowerLookup = bp, tnudLookup = nl, tledLookup = ll}
   where
-    (bp, nl) = createTypeNudLookups (Map.empty, Map.empty)
+    (bp', nl) = createTypeNudLookups (Map.empty, Map.empty)
+    (bp, ll) = createTypeLedLookups (bp', Map.empty)

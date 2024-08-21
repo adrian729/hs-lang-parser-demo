@@ -1,8 +1,7 @@
 module BindingPower where
 
 data BindingPower
-  = NONE
-  | DEFAULT
+  = DEFAULT
   | COMMA
   | ASSIG
   | LOGICAL
