@@ -2,8 +2,9 @@ let foo = 1 + 2 + 3 + 4 + 5;
 
 let foo: number = 1 + 2 + 3 + 4 + 5;
 
-//const bar: []number = 234;
+const bar: []number = 234;
 
-let baz: number; // no default value for baz
+let baz: number; // OK - no default value for baz
 
-//const wrong: number; // this is not allowed!
+//const wrong: number; // NOT OK - this is not allowed!
+//let wrong; // NOT OK - this is not allowed!

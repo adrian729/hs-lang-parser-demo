@@ -3,7 +3,7 @@ module Lookups where
 import AST
 import BindingPower
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe
 import Parser
 import Tokens
 import Types
@@ -121,27 +121,32 @@ getType parser =
        in (Just typeToken, pAfterType)
     else (Nothing, parser)
 
-parseVarDeclAssignStmt :: Parser -> (Maybe Expr, Parser)
-parseVarDeclAssignStmt parser
+validateEmptyVarDecl :: Parser -> Maybe Type -> Bool -> (Maybe Expr, Parser)
+validateEmptyVarDecl parser maybeType isConstant
+  | isConstant = error "Cannot define constant without providing a value"
+  | currentTokenKind parser == SEMI_COLON && isNothing maybeType = error "Missing either right-hand side of the assignment or type annotation"
+  | otherwise = (Nothing, parser)
+
+parseVarDeclAssignStmt :: Parser -> Maybe Type -> Bool -> (Maybe Expr, Parser)
+parseVarDeclAssignStmt parser maybeType isConstant
   | currentTokenKind parser == ASSIGNMENT =
       let (_, pAfterAssig) = expected parser ASSIGNMENT
           (expr, updatedParser) = parseExpr pAfterAssig ASSIG
        in (Just expr, updatedParser)
-  | otherwise = (Nothing, parser)
+  | otherwise = validateEmptyVarDecl parser maybeType isConstant
 
 parseVarDeclStmt :: Parser -> (Stmt, Parser)
 parseVarDeclStmt parser =
   let (varDeclToken, pAfterVarDecl) = advance parser
+      isConstant = CONST == tokenKind varDeclToken
       errMsg = Just "Inside variable declaration expected to find variable name"
       (varNameToken, pAfterVarName) = expectError errMsg pAfterVarDecl IDENTIFIER
       (maybeType, pAfterType) = getType pAfterVarName
-      -- if currentTokenKind == SEMI_COLON && isNothing maybeType
-      --  then error "Missing either right-hand side of the assignment or type annotation" -- TODO: check how to add this part... maybe need a func for each case better
-      (maybeExpr, pAfterAssig) = parseVarDeclAssignStmt pAfterType
+      (maybeExpr, pAfterAssig) = parseVarDeclAssignStmt pAfterType maybeType isConstant
       (_, updatedParser) = expected pAfterAssig SEMI_COLON
    in ( VarDeclStmt
           { name = tokenValue varNameToken,
-            isConst = CONST == tokenKind varDeclToken,
+            isConst = isConstant,
             assignedVal = maybeExpr,
             explicitType = maybeType
           },

@@ -34,7 +34,9 @@ parseSymbolType parser =
 
 parseArrayType :: TypeNudHandler
 parseArrayType parser =
-  let (underlyingType, updatedParser) = parseType parser DEFAULT
+  let (_, pAfterLBracket) = expected parser LBRACKET
+      (_, pAfterRBracket) = expected pAfterLBracket RBRACKET
+      (underlyingType, updatedParser) = parseType pAfterRBracket DEFAULT
    in (ArrayType underlyingType, updatedParser)
 
 --------------------------------------------------------------------------------
