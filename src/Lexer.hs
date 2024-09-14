@@ -50,7 +50,9 @@ reservedKWLookup =
       ("for", FOR),
       ("export", EXPORT),
       ("typeof", TYPEOF),
-      ("in", IN)
+      ("in", IN),
+      ("struct", STRUCT),
+      ("static", STATIC)
     ]
 
 isReservedSymbol :: String -> Bool

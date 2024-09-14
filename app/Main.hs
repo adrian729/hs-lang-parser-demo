@@ -6,7 +6,7 @@ import System.IO (IOMode (ReadMode), hGetContents, openFile)
 import Text.Show.Pretty (pPrint)
 
 examplePath :: String
-examplePath = "resources/05.lang"
+examplePath = "resources/06.lang"
 
 printHeader :: String -> IO ()
 printHeader header = do
@@ -20,13 +20,12 @@ main :: IO ()
 main = do
   handle <- openFile examplePath ReadMode
   contents <- hGetContents handle
-  printHeader "Code"
+  printHeader "CODE"
   putStrLn contents
   let tokens = tokenize contents
-  printHeader "TOKENS"
+  printHeader "LEXER"
   printTokens tokens
   printHeader "AST"
-  pPrint $ createParser tokens
   pPrint $ parse tokens
   putStrLn ""
 

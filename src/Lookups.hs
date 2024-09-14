@@ -1,7 +1,8 @@
 module Lookups where
 
 import AST
-import BindingPower
+import BindingPower as BP
+import Data.Map
 import qualified Data.Map as Map
 import Data.Maybe
 import Parser
@@ -9,6 +10,11 @@ import Tokens
 import Types
 
 -- TODO: see how to restructure or rename the module, it has all the parsing with the lookups ...
+
+insertIfNotMember :: (Ord k, Show k) => String -> k -> a -> Map k a -> Map k a
+insertIfNotMember errMsg key value m
+  | notMember key m = Map.insert key value m
+  | otherwise = error errMsg
 
 --------------------------------------------------------------------------------
 -- HANDLERS
@@ -51,6 +57,66 @@ parseAssignmentExpr parser left bp =
   let (operator, pAfterOp) = advance parser
       (valExpr, updatedParser) = parseExpr pAfterOp bp
    in (AssignmentExpr {assigne = left, operator = operator, value = valExpr}, updatedParser)
+
+-- STRUCT INSTANTIATION EXPR // ARRAY LITERAL EXPR
+
+parseStructInstProps :: (Map String Expr, Parser) -> (Map String Expr, Parser)
+parseStructInstProps (props, parser)
+  | hasTokens parser && kind /= RBRACE =
+      let (propNameToken, pAfterPropName) = expected parser IDENTIFIER
+          (_, pAfterColon) = expected pAfterPropName COLON
+          (propExpr, pAfterPropExpr) = parseExpr pAfterColon LOGICAL -- minimum BP for prop expr
+          (_, updatedParser) =
+            if currentTokenKind pAfterPropExpr /= RBRACE
+              then expected pAfterPropExpr Tokens.COMMA
+              else (currentToken pAfterPropExpr, pAfterPropExpr)
+       in parseStructInstProps (Map.insert (tokenValue propNameToken) propExpr props, updatedParser)
+  | otherwise = (props, parser)
+  where
+    kind = currentTokenKind parser
+
+parseStructInstantiation :: LedHandler
+parseStructInstantiation parser (SymbolExpr structName) _ =
+  let (_, pAfterLBrace) = expected parser LBRACE
+      (structInstanceProps, pAfterProps) = parseStructInstProps (Map.empty, pAfterLBrace)
+      (_, updatedParser) = expected pAfterProps RBRACE
+   in (StructInstantiationExpr {structName = structName, structInstanceProps = structInstanceProps}, updatedParser) -- TODO: impl
+parseStructInstantiation _ notSymbolExpr _ = error $ "Expected symbol expression for struct instantiation but found " ++ show notSymbolExpr
+
+-- ARRAY LITERAL/INSTANTIATION EXPR
+
+parseNestedArray :: Parser -> Type -> (Type, Parser)
+parseNestedArray parser underlyingType
+  | kind == LBRACKET =
+      let (_, pAfterLBracket) = expected parser LBRACKET
+          (_, pAfterRBracket) = expected pAfterLBracket RBRACKET
+       in parseNestedArray pAfterRBracket (ArrayType underlyingType)
+  | otherwise = (underlyingType, parser)
+  where
+    kind = currentTokenKind parser
+
+parseArrayContent :: Parser -> ([Expr], Parser)
+parseArrayContent parser
+  | hasTokens parser && kind /= RBRACE =
+      let (expr, pAfterExpr) = parseExpr parser LOGICAL
+       in if currentTokenKind pAfterExpr /= RBRACE
+            then
+              let (_, pAfterComma) = expected pAfterExpr Tokens.COMMA
+                  (nextContent, updatedParser) = parseArrayContent pAfterComma
+               in (expr : nextContent, updatedParser)
+            else ([expr], pAfterExpr)
+  | otherwise = ([], parser)
+  where
+    kind = currentTokenKind parser
+
+parseArrayLiteral :: LedHandler
+parseArrayLiteral parser (SymbolExpr structName) _ =
+  let (arrayType, pAfterArrayType) = parseNestedArray parser (SymbolType structName)
+      (_, pAfterLBrace) = expected pAfterArrayType LBRACE
+      (content, pAfterContent) = parseArrayContent pAfterLBrace
+      (_, updatedParser) = expected pAfterContent RBRACE
+   in (ArrayLiteralExpr {arrayType = arrayType, content = content}, updatedParser)
+parseArrayLiteral _ notSymbolExpr _ = error $ "Expected symbol expression for array literal but found " ++ show notSymbolExpr
 
 --------------------------------------------------------------------------------
 -- PARSE NUD
@@ -113,6 +179,8 @@ parseStmt parser =
         Just stmtHandler -> stmtHandler parser
         Nothing -> parseExprStmt parser
 
+-- VAR DECL STMT
+
 getType :: Parser -> (Maybe Type, Parser)
 getType parser =
   if currentTokenKind parser == COLON
@@ -154,6 +222,60 @@ parseVarDeclStmt parser =
         updatedParser
       )
 
+-- STRUCT DECL STMT
+
+parseStructProp :: Parser -> Bool -> (String, StructDeclProperty, Parser)
+parseStructProp parser isStatic =
+  let (nameToken, pAfterName) = expected parser IDENTIFIER
+      errMsg = "Expected to find colon following property name inside struct declaration"
+      (_, pAfterColon) = expectError (Just errMsg) pAfterName COLON
+      (propertyType, pAfterStructType) = parseType pAfterColon DEFAULT
+      (_, updatedParser) = expected pAfterStructType SEMI_COLON
+   in (tokenValue nameToken, StructDeclProperty {propertyType = propertyType, isStatic = isStatic}, updatedParser) -- TODO: impl
+
+parseStructMethod :: Parser -> Bool -> (String, StructDeclMethod, Parser)
+parseStructMethod = undefined -- TODO: impl struct methods
+
+parseStructPropOrMethod :: Bool -> (Map String StructDeclProperty, Map String StructDeclMethod, Parser) -> (Map String StructDeclProperty, Map String StructDeclMethod, Parser)
+parseStructPropOrMethod isStatic (props, methods, parser)
+  | kind == IDENTIFIER =
+      let (propName, newProp, updatedParser) = parseStructProp parser isStatic
+          errMsg = error $ "Duplicated property name " ++ propName
+          newProps = insertIfNotMember errMsg propName newProp props
+       in (newProps, methods, updatedParser)
+  | kind == FN =
+      let (methodName, newMethod, updatedParser) = parseStructMethod parser isStatic
+       in (props, Map.insert methodName newMethod methods, updatedParser)
+  | otherwise = error $ "Expected either property or method declaration but found " ++ show kind
+  where
+    kind = currentTokenKind parser
+
+parseStructPropsAndMethods :: (Map String StructDeclProperty, Map String StructDeclMethod, Parser) -> (Map String StructDeclProperty, Map String StructDeclMethod, Parser)
+parseStructPropsAndMethods (props, methods, parser)
+  | hasTokens parser && kind /= RBRACE =
+      let isStatic = kind == STATIC
+          pAfterStatic = if isStatic then snd (expected parser STATIC) else parser
+          updatedStructAndParser = parseStructPropOrMethod isStatic (props, methods, pAfterStatic)
+       in parseStructPropsAndMethods updatedStructAndParser
+  | otherwise = (props, methods, parser)
+  where
+    kind = currentTokenKind parser
+
+parseStructDeclStmt :: Parser -> (Stmt, Parser)
+parseStructDeclStmt parser =
+  let (_, pAfterStruct) = expected parser STRUCT
+      (structNameToken, pAfterStructName) = expected pAfterStruct IDENTIFIER
+      (_, pAfterLBrace) = expected pAfterStructName LBRACE
+      (props, methods, pAfterPropsMethods) = parseStructPropsAndMethods (Map.empty, Map.empty, pAfterLBrace)
+      (_, pAfterRBrace) = expected pAfterPropsMethods RBRACE
+   in ( StructDeclStmt
+          { name = tokenValue structNameToken,
+            properties = props,
+            methods = methods
+          },
+        pAfterRBrace
+      )
+
 --------------------------------------------------------------------------------
 -- HELPERS ADD HANDLERS AND BPs TO LOOKUPS
 --------------------------------------------------------------------------------
@@ -182,7 +304,7 @@ createNudGroupingLookups l = createLookups parseGroupingExpr DEFAULT l [LPAREN]
 
 -- LED:
 createLedLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
-createLedLookups = createLedMultiplicativeLookups . createLedAdditiveLookups . createLedRelationalLookups . createLedLogicalLookups . createLedAssignmentLookups
+createLedLookups = createLedArrayInstantiationLookups . createLedCallLookups . createLedMultiplicativeLookups . createLedAdditiveLookups . createLedRelationalLookups . createLedLogicalLookups . createLedAssignmentLookups
 
 -- Assignment
 createLedAssignmentLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
@@ -204,13 +326,24 @@ createLedAdditiveLookups l = createLookups parseBinaryExpr ADDITIVE l [PLUS, MIN
 createLedMultiplicativeLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
 createLedMultiplicativeLookups l = createLookups parseBinaryExpr MULTIPLICATIVE l [TIMES, DIVIDE, MODULO]
 
+-- Call/Member
+createLedCallLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
+createLedCallLookups l = createLookups parseStructInstantiation CALL l [LBRACE]
+
+-- Array instantiation
+createLedArrayInstantiationLookups :: (BindingPowerLookup, LedLookup) -> (BindingPowerLookup, LedLookup)
+createLedArrayInstantiationLookups l = createLookups parseArrayLiteral CALL l [LBRACKET]
+
 -- STMT:
 createStmtLookups :: (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
-createStmtLookups = createStmtVarDeclLookups
+createStmtLookups = createStmtStructDeclLookups . createStmtVarDeclLookups
 
 -- Var Decl
 createStmtVarDeclLookups :: (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
 createStmtVarDeclLookups l = createLookups parseVarDeclStmt DEFAULT l [CONST, LET]
+
+createStmtStructDeclLookups :: (BindingPowerLookup, StmtLookup) -> (BindingPowerLookup, StmtLookup)
+createStmtStructDeclLookups l = createLookups parseStructDeclStmt DEFAULT l [STRUCT]
 
 -- Finally:
 -- TODO: implement this, we need to create each lookup and have the bindingPower shared/updated for all lookups

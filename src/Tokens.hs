@@ -66,6 +66,8 @@ data TokenKind
   | EXPORT
   | TYPEOF
   | IN
+  | STRUCT
+  | STATIC
   deriving (Enum, Show, Eq, Ord)
 
 data Token = Token
@@ -78,7 +80,7 @@ isOneOfMany :: Token -> [TokenKind] -> Bool
 isOneOfMany (Token _ kind) kinds = kind `elem` kinds
 
 reservedKeywords :: [TokenKind]
-reservedKeywords = [LET, CONST, CLASS, NEW, IMPORT, FROM, FN, IF, ELSE, FOREACH, WHILE, FOR, EXPORT, TYPEOF, IN]
+reservedKeywords = [LET, CONST, CLASS, NEW, IMPORT, FROM, FN, IF, ELSE, FOREACH, WHILE, FOR, EXPORT, TYPEOF, IN, STRUCT, STATIC]
 
 isReservedKeyword :: Token -> Bool
 isReservedKeyword (Token _ kind) = kind `elem` reservedKeywords
